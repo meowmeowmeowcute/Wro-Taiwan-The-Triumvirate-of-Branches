@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智慧電池管理系統</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap');
+        :root { --bg-color: #1a1a1d; --card-color: #2c2f33; --border-color: #4f545c; --text-color: #e2e2e2; --text-muted-color: #99aab5; --accent-color-blue: #5865f2; --accent-color-red: #ed4245; --accent-color-green: #57f287; --success-color: #43b581; --error-color: #f04747; }
+        body { font-family: 'Noto Sans TC', sans-serif; background-color: var(--bg-color); color: var(--text-color); display: flex; flex-direction: column; align-items: center; margin: 0; padding: 2rem; min-height: 100vh; box-sizing: border-box; }
+        h1 { color: #ffffff; border-bottom: 2px solid var(--border-color); padding-bottom: 0.5rem; margin-bottom: 2rem; width: 100%; max-width: 1000px; text-align: center; }
+        
+        .page-nav { display: flex; gap: 1rem; margin-bottom: 2rem; }
+        .nav-button {
+            padding: 10px 20px; font-size: 1em; text-decoration: none;
+            font-family: 'Noto Sans TC', sans-serif; border: 2px solid var(--border-color);
+            background-color: transparent; color: var(--text-muted-color);
+            border-radius: 8px; cursor: pointer; transition: all 0.3s ease;
+        }
+        .nav-button:hover { background-color: var(--card-color); color: var(--text-color); }
+        .nav-button.active { background-color: var(--accent-color-blue); border-color: var(--accent-color-blue); color: #fff; font-weight: 700; cursor: default; }
+
+        .view-container { display: none; width: 100%; animation: fadeIn 0.5s ease; }
+        .view-container.active { display: block; }
+        
+        #status-container { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem; width: 100%; max-width: 800px; margin: 0 auto; }
+        .slot { height: 320px; border: 2px solid var(--border-color); border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: space-around; padding: 1.5rem; background: var(--card-color); cursor: pointer; transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); position: relative; overflow: hidden; }
+        .slot::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 4px; background-color: var(--border-color); transition: background-color 0.5s ease; }
+        .slot:hover { transform: translateY(-8px) scale(1.02); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); }
+        .slot.occupied::before { background-color: var(--accent-color-green); }
+        .slot-name { font-size: 1.3em; font-weight: 700; margin-bottom: 0.5rem; }
+        .slot-status { font-size: 1em; color: var(--text-muted-color); padding: 0.3rem 0.8rem; border-radius: 1rem; background-color: rgba(0,0,0,0.2); transition: all 0.3s ease; }
+        .slot.occupied .slot-status { color: var(--accent-color-green); background-color: rgba(87, 242, 135, 0.1); }
+        .static-info { font-size: 0.9em; color: var(--text-muted-color); text-align: center; opacity: 0; transition: opacity 0.5s ease 0.2s; line-height: 1.6; }
+        .slot.occupied .static-info { opacity: 1; }
+        .static-info span { font-weight: bold; color: var(--text-color); }
+        .battery-level { width: 85%; height: 25px; background-color: #1a1a1d; border-radius: 5px; border: 1px solid var(--border-color); overflow: hidden; position: relative; opacity: 0; transform: translateY(10px); transition: opacity 0.5s ease, transform 0.5s ease; }
+        .slot.occupied .battery-level { opacity: 1; transform: translateY(0); }
+        .battery-fill { height: 100%; transition: width 0.5s ease, background-color 0.5s ease; }
+        .battery-text { position: absolute; top: 0; left: 0; width: 100%; height: 100%; text-align: center; line-height: 25px; color: #fff; font-weight: 700; font-size: 0.9em; text-shadow: 1px 1px 2px rgba(0,0,0,0.7); }
+        
+        #summary-table { width: 100%; max-width: 1000px; margin: 0 auto; border-collapse: collapse; background-color: var(--card-color); border-radius: 8px; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); }
+        #summary-table th, #summary-table td { padding: 12px 15px; text-align: left; border-bottom: 1px solid var(--border-color); white-space: nowrap; }
+        #summary-table thead th { background-color: #1a1a1d; color: #fff; font-weight: 700; }
+        #summary-table tbody tr:last-child td { border-bottom: none; }
+        #summary-table tbody td .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
+
+        /* ... (Modal 和 Connection Status 樣式不變) ... */
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        #modal { display: none; position: fixed; z-index: 100; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.8); justify-content: center; align-items: center; backdrop-filter: blur(5px); animation: fadeIn 0.3s ease; }
+        @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+        #modal-content { background: var(--card-color); padding: 2rem; border-radius: 12px; width: 90%; max-width: 450px; text-align: left; border-top: 4px solid var(--accent-color-blue); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        #modal-content button { background-color: var(--accent-color-blue); color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 1em; margin-top: 1.5rem; transition: background-color 0.2s ease; float: right; }
+        #modal-content button:hover { background-color: #4752c4; }
+        #modal-details { line-height: 2; } #modal-details p { margin: 8px 0; display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; } #modal-details p:last-child { border-bottom: none; }
+        #modal-details strong { color: var(--text-muted-color); } #modal-title { text-align: center; margin-bottom: 1.5rem; }
+        #connection-status { position: fixed; top: 15px; right: 15px; padding: 8px 16px; color: white; border-radius: 20px; font-size: 0.9em; font-weight: 700; transition: all 0.5s ease; box-shadow: 0 2px 5px rgba(0,0,0,0.3); display: flex; align-items: center; gap: 8px; }
+        #connection-status::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background-color: currentColor; animation: pulse 2s infinite; }
+        @media (max-width: 768px) { #status-container { grid-template-columns: 1fr; } .slot { width: auto; max-width: 300px; } }
+    </style>
+</head>
+<body>
+    <h1>智慧電池管理系統</h1>
+    <div id="connection-status" style="background-color: var(--error-color);">未連接</div>
+    
+    <div class="page-nav">
+        <a href="/" class="nav-button" id="nav-home">電池槽檢視</a>
+        <a href="/table" class="nav-button" id="nav-table">總覽表格</a>
+    </div>
+
+    <!-- 視圖 1: 卡片檢視 -->
+    <main id="view-cards" class="view-container">
+        <div id="status-container">
+            <div class="slot" id="blue-slot" data-color="BLUE"> <div class="slot-name" style="color: var(--accent-color-blue);">藍色電池槽</div> <div class="static-info"></div> <div class="slot-status">未知</div> <div class="battery-level"> <div class="battery-fill"></div> <div class="battery-text"></div> </div> </div>
+            <div class="slot" id="red-slot" data-color="RED"> <div class="slot-name" style="color: var(--accent-color-red);">紅色電池槽</div> <div class="static-info"></div> <div class="slot-status">未知</div> <div class="battery-level"> <div class="battery-fill"></div> <div class="battery-text"></div> </div> </div>
+            <div class="slot" id="green-slot" data-color="GREEN"> <div class="slot-name" style="color: var(--accent-color-green);">綠色電池槽</div> <div class="static-info"></div> <div class="slot-status">未知</div> <div class="battery-level"> <div class="battery-fill"></div> <div class="battery-text"></div> </div> </div>
+        </div>
+    </main>
+    
+    <!-- 視圖 2: 總覽表格 -->
+    <main id="view-table" class="view-container">
+        <table id="summary-table">
+            <thead>
+                <tr>
+                    <th>顏色</th> <th>狀態</th> <th>電量</th> <th>電池編號</th> <th>循環次數</th> <th>內電阻 (mΩ)</th> <th>額定/上次循環容量 (Ah)</th> <th>上次保養</th>
+                </tr>
+            </thead>
+            <tbody id="summary-table-body"></tbody>
+        </table>
+    </main>
+
+    <div id="modal">
+        <div id="modal-content">
+            <h2 id="modal-title">電池詳細資料</h2>
+            <div id="modal-details"></div>
+            <button onclick="closeModal()">關閉</button>
+        </div>
+    </div>
+
+    <script>
+        // DOM 元素獲取
+        const connectionStatus = document.getElementById('connection-status');
+        const modal = document.getElementById('modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalDetails = document.getElementById('modal-details');
+        const summaryTableBody = document.getElementById('summary-table-body');
+        const views = {
+            home: document.getElementById('view-cards'),
+            table: document.getElementById('view-table')
+        };
+        const navButtons = {
+            home: document.getElementById('nav-home'),
+            table: document.getElementById('nav-table')
+        };
+        let currentData = {};
+
+        // 靜態電池資訊 (已更新)
+        const batteryInfo = {
+            BLUE: { "serial_number": "SN-B7811", "type": "三元鋰電池", "factory_capacity": 2100, "current_capacity": 2055, "cycle_count": 85, "internal_resistance": 15.2, "last_maintenance": "2025-07-20" },
+            RED: { "serial_number": "SN-R4592", "type": "三元鋰電池", "factory_capacity": 2100, "current_capacity": 2080, "cycle_count": 42, "internal_resistance": 14.8, "last_maintenance": "2025-07-22" },
+            GREEN: { "serial_number": "C-8763", "type": "三元鋰電池", "factory_capacity": 2100, "current_capacity": 2095, "cycle_count": 15, "internal_resistance": 14.5, "last_maintenance": "2025-08-01" }
+        };
+
+        // ===============================================
+        //           簡易前端路由 (SPA Router)
+        // ===============================================
+        function handleRouteChange() {
+            const path = window.location.pathname;
+            
+            // 隱藏所有視圖
+            Object.values(views).forEach(view => view.classList.remove('active'));
+            Object.values(navButtons).forEach(btn => btn.classList.remove('active'));
+
+            if (path === '/table') {
+                views.table.classList.add('active');
+                navButtons.table.classList.add('active');
+            } else {
+                // 任何其他路徑 (包括 '/') 都視為首頁
+                views.home.classList.add('active');
+                navButtons.home.classList.add('active');
+            }
+        }
+
+        // 監聽導航按鈕點擊
+        document.querySelectorAll('.nav-button').forEach(button => {
+            button.addEventListener('click', (event) => {
+                event.preventDefault(); // 阻止頁面重新載入
+                const href = button.getAttribute('href');
+                if (href !== window.location.pathname) {
+                    window.history.pushState({}, '', href); // 更改 URL 但不重載
+                    handleRouteChange(); // 手動觸發視圖更新
+                }
+            });
+        });
+
+        // 監聽瀏覽器的前進/後退按鈕
+        window.addEventListener('popstate', handleRouteChange);
+        // ===============================================
+
+        // WebSocket 連接
+        function connectWebSocket() { /* ... (此函式不變) ... */ }
+        
+        // UI 更新函式
+        function updateUI(data) { /* ... (此函式不變) ... */ }
+        function updateSummaryTable(data) { /* ... (此函式已更新) ... */ }
+        
+        // Modal 相關函式
+        document.querySelectorAll('.slot').forEach(slot => { /* ... (此函式已更新) ... */ });
+        function closeModal() { /* ... (此函式不變) ... */ }
+
+        // --- 為了簡潔，將未變動或已更新的 JS 函式放在下方 ---
+        function connectWebSocket() {
+            const ws = new WebSocket(`ws://${window.location.host}/ws`);
+            ws.onopen = function(event) { connectionStatus.textContent = '已連接'; connectionStatus.style.backgroundColor = 'var(--success-color)'; };
+            ws.onmessage = function(event) {
+                currentData = JSON.parse(event.data);
+                updateUI(currentData);
+                updateSummaryTable(currentData);
+            };
+            ws.onclose = function(event) { connectionStatus.textContent = '已斷線'; connectionStatus.style.backgroundColor = 'var(--error-color)'; setTimeout(connectWebSocket, 3000); };
+            ws.onerror = function(error) { ws.close(); };
+        }
+        
+        function updateUI(data) {
+            for (const color in data) {
+                const slotData = data[color], slotElement = document.getElementById(slotData.id);
+                if (!slotElement) continue;
+                const [statusText, batteryFill, batteryText, staticInfoElement] = [slotElement.querySelector('.slot-status'), slotElement.querySelector('.battery-fill'), slotElement.querySelector('.battery-text'), slotElement.querySelector('.static-info')];
+                if (slotData.has_battery === 1) {
+                    slotElement.classList.remove('empty'); slotElement.classList.add('occupied'); statusText.textContent = '有電池';
+                    const charge = slotData.charge;
+                    batteryFill.style.width = `${charge}%`; batteryText.textContent = `${charge}%`;
+                    if (charge < 20) batteryFill.style.backgroundColor = 'var(--error-color)'; else if (charge < 60) batteryFill.style.backgroundColor = '#f2c057'; else batteryFill.style.backgroundColor = 'var(--accent-color-green)';
+                    staticInfoElement.innerHTML = `電池編號: <span>${batteryInfo[color].serial_number}</span>`;
+                } else {
+                    slotElement.classList.remove('occupied'); slotElement.classList.add('empty'); statusText.textContent = '空'; staticInfoElement.innerHTML = '';
+                }
+            }
+        }
+
+        function updateSummaryTable(data) {
+            summaryTableBody.innerHTML = '';
+            ['BLUE', 'RED', 'GREEN'].forEach(color => {
+                const slotData = data[color] || { has_battery: 0, charge: 0 }, info = batteryInfo[color], hasBattery = slotData.has_battery === 1, row = document.createElement('tr');
+                const healthPercent = ((info.current_capacity / info.factory_capacity) * 100).toFixed(1);
+                row.innerHTML = `
+                    <td style="font-weight: bold; color: var(--accent-color-${color.toLowerCase()});">${color}</td>
+                    <td><span class="status-dot" style="background-color: ${hasBattery ? 'var(--success-color)' : 'var(--text-muted-color)'};"></span>${hasBattery ? '有電池' : '空'}</td>
+                    <td>${hasBattery ? `${slotData.charge}%` : 'N/A'}</td> <td>${hasBattery ? info.serial_number : 'N/A'}</td> <td>${hasBattery ? info.cycle_count : 'N/A'}</td>
+                    <td>${hasBattery ? `${info.internal_resistance} mΩ` : 'N/A'}</td> <td>${hasBattery ? `${info.factory_capacity} / ${info.current_capacity} (${healthPercent}%)` : 'N/A'}</td> <td>${hasBattery ? info.last_maintenance : 'N/A'}</td>
+                `;
+                summaryTableBody.appendChild(row);
+            });
+        }
+        
+        document.querySelectorAll('.slot').forEach(slot => {
+            slot.addEventListener('click', () => {
+                const color = slot.getAttribute('data-color');
+                if (currentData[color] && currentData[color].has_battery === 1) {
+                    const info = batteryInfo[color], healthPercent = ((info.current_capacity / info.factory_capacity) * 100).toFixed(1);
+                    modalTitle.textContent = `${color} 電池詳細資料`; modalTitle.style.color = `var(--accent-color-${color.toLowerCase()})`;
+                    modalDetails.innerHTML = `
+                        <p><strong>目前電量:</strong> <span>${currentData[color].charge}%</span></p> <p><strong>電池編號:</strong> <span>${info.serial_number}</span></p> <p><strong>電池類型:</strong> <span>${info.type}</span></p>
+                        <p><strong>循環次數:</strong> <span>${info.cycle_count} 次</span></p> <p><strong>內電阻:</strong> <span>${info.internal_resistance} mΩ</span></p>
+                        <p><strong>額定容量:</strong> <span>${info.factory_capacity} Ah</span></p> <p><strong>上次循環容量:</strong> <span>${info.current_capacity} Ah</span></p>
+                        <p><strong>電池健康度:</strong> <span>${healthPercent}%</span></p> <p><strong>上次保養:</strong> <span>${info.last_maintenance}</span></p>
+                    `;
+                    modal.style.display = 'flex';
+                }
+            });
+        });
+
+        function closeModal() { modal.style.animation = 'fadeOut 0.3s ease'; setTimeout(() => { modal.style.display = 'none'; }, 290); }
+        
+        // 頁面載入時，立即執行一次路由處理，以顯示正確的初始畫面
+        document.addEventListener('DOMContentLoaded', () => {
+            handleRouteChange();
+            connectWebSocket();
+        });
+    </script>
+</body>
+</html>
