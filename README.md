@@ -10,4 +10,16 @@ wro-taiwan/
     ├── main.py            # 主控電腦: 後端伺服器兼模型辨識以及與 Spike 通訊
     ├── index.html         # 主控電腦: 前端網頁儀表板 
     └── best.pt            # 主控電腦: YOLOv8 影像辨識模型
+
+
+wro-taiwan/
+├── spike/
+│   ├── car.py             # Spike Hub: controls battery release and locking
+│   ├── robot_arm.py       # Spike Hub: main program for controlling the robotic arm to replace batteries and handle communication
+│   └── battery_storage.py # Spike Hub: manages the battery storage
+└── main/
+    ├── main.py            # Main computer: backend server with model inference and communication with Spike
+    ├── index.html         # Main computer: frontend web dashboard
+    └── best.pt            # Main computer: YOLOv8 image recognition model
+
 ```
