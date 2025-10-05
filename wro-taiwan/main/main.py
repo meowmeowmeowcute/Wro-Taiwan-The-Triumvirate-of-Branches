@@ -14,8 +14,8 @@ PACKET_TYPE_STORAGE = 0x01
 PACKET_TYPE_COMMAND = 0x02
 PACKET_TYPE_LOG = 0x03
 data_buffer = b''
-MODEL_PATH = "best_wro.pt"
-CLASS_NAMES = ['CLEAN', 'DIRTY']
+MODEL_PATH = "best.pt"
+CLASS_NAMES = ['hole', 'line']
 model = None
 latest_frame = None
 frame_lock = threading.Lock()
@@ -54,6 +54,7 @@ class ConnectionManager:
         self.active_connections.remove(websocket)
     async def broadcast_data(self, data: dict):
         message = json.dumps(data)
+        print(f"[WebSocket] 發送資料: {message}")  
         for connection in self.active_connections:
             await connection.send_text(message)
 
@@ -67,7 +68,7 @@ latest_storage_status = {
 
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
-    return HTMLResponse(open("index.html", "r", encoding="utf-8").read())
+    return HTMLResponse(open(r"C:\Users\ken09\OneDrive\文件\wro\wro codes\wro-taiwan\main\index.html", "r", encoding="utf-8").read())
     
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -81,44 +82,34 @@ async def websocket_endpoint(websocket: WebSocket):
 
 def camera_thread_func():
     global latest_frame
-    cap = cv2.VideoCapture(2)
+    cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("錯誤：無法開啟鏡頭。")
         return
-        
     print("鏡頭已啟動，按 'q' 鍵關閉視窗。")
-    
     while True:
         ret, frame = cap.read()
         if not ret:
             break
-            
         with frame_lock:
             latest_frame = frame.copy()
-        
         if model is not None:
             annotated_frame = frame.copy()
             results = model(frame, verbose=False)
-            
             for box in results[0].boxes:
                 confidence = box.conf[0].item()
-                
                 if confidence > 0.7:
                     x1, y1, x2, y2 = map(int, box.xyxy[0])
                     class_id = int(box.cls[0].item())
                     class_name = model.names[class_id]
                     label = f"{class_name} {confidence:.2f}"
-                    
                     cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
                     cv2.putText(annotated_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
             cv2.imshow('Spike Hub Battery Check', annotated_frame)
         else:
             cv2.imshow('Spike Hub Battery Check', frame)
-
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
-            
     cap.release()
     cv2.destroyAllWindows()
     print("鏡頭視窗已關閉。")
@@ -142,29 +133,26 @@ async def analyze_battery_status():
     if model is None or latest_frame is None:
         print("模型或鏡頭畫面尚未準備好。")
         return
-        
     with frame_lock:
         frame_to_process = latest_frame.copy()
-        
     try:
         results = model(frame_to_process, verbose=False)
-        prediction = "CLEAN"
-        
+        detected_defects = []
         for box in results[0].boxes:
-            if box.conf[0] > 0.7:
-                prediction = "DIRTY"
-                class_name = model.names[int(box.cls[0])]
-                confidence = box.conf[0]
-                print(f"偵測到高信心度物件! Class: {class_name}, Confidence: {confidence:.2f}. 最終結果設為 DIRTY。")
-                break
-        
-        if prediction == "CLEAN":
-            print("未偵測到任何信心度 > 0.7 的物體。最終結果設為 CLEAN。")
-
+            confidence = box.conf[0].item()
+            if confidence > 0.7:
+                class_id = int(box.cls[0].item())
+                class_name = model.names[class_id]
+                detected_defects.append(f"{class_name}({confidence:.2f})")
+        if detected_defects:
+            prediction = ", ".join(detected_defects)
+            print(f"偵測到瑕疵: {prediction}")
+        else:
+            prediction = "no_defect"
+            print("未偵測到任何瑕疵。")
     except Exception as e:
         print(f"解析 YOLO 結果時出錯: {e}")
-        prediction = "ERROR"
-        
+        prediction = "error"
     print(f"辨識完成，結果為: {prediction}。等待 Spike Hub 請求...")
     with ai_result_lock:
         ai_result_to_send = prediction
@@ -178,22 +166,17 @@ def handle_rx(_, data: bytearray):
             if len(data_buffer) > 1024:
                 data_buffer = b''
             break
-        
         data_buffer = data_buffer[start_index:]
         if len(data_buffer) < 3:
             break
-            
         packet_type = data_buffer[1]
         payload_len = data_buffer[2]
         full_packet_len = 3 + payload_len + 1
-        
         if len(data_buffer) < full_packet_len:
             break
-            
         if data_buffer[full_packet_len - 1] != ord('<'):
             data_buffer = data_buffer[1:]
             continue
-            
         payload = data_buffer[3 : 3 + payload_len]
         process_packet(packet_type, payload)
         data_buffer = data_buffer[full_packet_len:]
@@ -234,8 +217,14 @@ def handle_command_packet(payload):
         elif command == 'RDY_FOR_RESULT':
             with ai_result_lock:
                 if ai_result_to_send is not None:
-                    print(f"收到 Hub 的結果請求，正在發送: {ai_result_to_send}")
-                    asyncio.create_task(send_response_to_hub(ai_result_to_send))
+                    defects = ai_result_to_send.lower()
+                    # 只要有瑕疵就是錯誤
+                    if defects == "no_defect":
+                        message_to_send = "OK"
+                    else:
+                        message_to_send = "DIRTY"
+                    print(f"Sending to Hub: {message_to_send}")
+                    asyncio.create_task(send_response_to_hub(message_to_send))
                     ai_result_to_send = None
     except Exception as e:
         print(f"解碼指令時出錯: {e}")
@@ -251,7 +240,6 @@ async def bluetooth_task():
                 print(f"找不到 '{HUB_NAME}'，5 秒後重試...")
                 await asyncio.sleep(5)
                 continue
-            
             print(f"找到 Hub: {device.address}")
             async with BleakClient(device) as client:
                 hub_client = client
@@ -260,7 +248,6 @@ async def bluetooth_task():
                 print("訂閱成功。正在監聽數據...")
                 while client.is_connected:
                     await asyncio.sleep(1)
-            
             print("Hub 已斷線。準備重新連接...")
             hub_client = None
         except asyncio.CancelledError:
